@@ -1,0 +1,176 @@
+drop function if exists operacionesProyectosRoles(json);
+create or replace
+function operacionesProyectosRoles(in injson json,
+	out cmensaje character varying,
+	out cjson character varying,
+	out iestado smallint)
+returns record
+language plpgsql
+as $function$
+declare
+	data json;
+	i json;
+	opcion smallint;
+	irol smallint;
+begin
+	--raise notice 'function executed %', injson;
+	data := injson->'data';
+	--raise notice 'function executed %', data;
+	opcion := injson->'opc';
+	cmensaje := 'exito';	
+	iestado := 1;
+if (opcion = 1) then
+--LISTAR
+cjson = (
+select
+	array_to_json(array_agg(
+			jsonb_build_object('idRol',
+	id,
+	'nombre',
+	nombre,
+	'status',
+	status)
+			)
+		)
+from
+	proyectos_roles
+where
+	status = 1);
+
+cmensaje := 'Datos encontrados';
+
+elseif (opcion = 2) then
+-- CREAR
+		for i in
+select
+	*
+from
+	json_array_elements(data) loop
+			irol := (i->> 'idRol')::INT;
+
+insert
+	into
+	proyectos_roles(nombre,status)
+values (i->>'nombre',1);
+end loop;
+
+cmensaje := 'Rol guardado';
+
+elseif (opcion = 3) then
+-- MODIFICAR
+		for i in
+select
+	*
+from
+	json_array_elements(data) loop
+			irol := (i->> 'idRol')::INT;
+
+if exists (
+select
+	*
+from
+	proyectos_roles
+where
+	id = irol) then 
+				update
+	proyectos_roles
+set
+	nombre = i->>'nombre',
+	status = (i->>'status')::INT
+where
+	id = irol;
+
+cmensaje := 'Roles modificados con éxito';
+else
+				cmensaje := 'El rol con el id: ' || irol || ' no existe';
+
+iestado := -1;
+
+exit;
+end if;
+end loop;
+
+elseif (opcion = 4) then
+-- ELIMINAR
+		for i in
+select
+	*
+from
+	json_array_elements(data) loop
+			irol := (i->>'idRol')::INT;
+
+if exists (
+select
+	*
+from
+	proyectos_roles
+where
+	id = irol) then 
+				update
+	proyectos_roles
+set
+	status = 0
+where
+	id = irol;
+
+cmensaje := 'Roles dados de baja con éxito';
+else
+				cmensaje := 'El rol con el id: ' || irol || ' no existe';
+
+iestado := -1 ;
+
+exit ;
+end if ;
+end loop ;
+else 
+		cmensaje := 'Opcion no valida';
+end if ;
+
+return;
+end;
+
+$function$;
+
+--Probar la lectura
+select cmensaje,cjson,iestado from operacionesproyectosroles('{
+	"opc": 1,
+	"data": []
+}');
+--Probar la creación
+select cmensaje,cjson,iestado from operacionesproyectosroles('{
+	"opc": 2,
+	"data": [
+	{
+		"nombre": "ir por las cocas"
+	},
+	{
+		"nombre": "wey"
+	}
+]
+}');
+--Probar la modificación
+select cmensaje,cjson,iestado from operacionesproyectosroles('{
+	"opc": 3,
+	"data": [
+    {
+        "idRol": 26,
+        "nombre": "hacerse wey",
+        "status": 1
+    }
+]
+}');
+--Probar el borrado lógico
+select cmensaje,cjson,iestado from operacionesproyectosroles('{
+	"opc": 4,
+	"data": [
+    {
+        "idRol": 25,
+        "nombre": "ir por las cocas",
+        "status": 1
+    }
+]
+}');
+-- CONSULTAR LA TABLA
+select * from proyectos_roles; 
+-- BORRAR REGISTROS CON STATUS NULO (para borrar registros basura)
+delete from proyectos_roles p where p.status is null; 

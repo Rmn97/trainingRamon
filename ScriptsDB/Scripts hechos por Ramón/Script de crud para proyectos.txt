@@ -1,0 +1,152 @@
+drop function if exists operacionesProyectos(json);
+create or replace function operacionesProyectos(in injson json, 
+	out cmensaje character varying,
+	out cjson character varying,
+	out iestado smallint)
+returns record
+language plpgsql
+as $function$
+declare 
+	data json;
+	i json;
+	opcion smallint;
+	iproyecto smallint;
+begin
+    --raise notice 'function executed %', injson;
+	data := injson->'data'; 
+	--raise notice 'function executed %', data;
+	opcion := injson->'opc';
+	cmensaje := 'exito';
+    iestado := 1;
+	if (opcion = 1) then --LISTA ESTA MADRE
+		cjson = (select array_to_json(array_agg(
+			jsonb_build_object(
+						'idProyecto', id, 
+						'nombre', nombre, 
+						'status', status,
+						'inicio', fechainicio, 
+						'fin', fechafin, 
+						'descripcion', descripcion
+					)
+				)
+		)
+		from proyectos where status = '1');
+		cmensaje := 'Datos encontrados';
+	elseif (opcion = 2) then --CREA UN NUEVO REGISTRO
+    	for i in select * from json_array_elements(data) loop
+        	insert into proyectos(
+        							nombre,
+        							status,
+        							fechainicio,
+        							fechafin,
+        							descripcion
+        					) values (
+        							i->>'nombre', 
+        							1,
+        							(i->>'inicio')::date,
+        							(i->>'fin')::date, 
+        							i->>'descripcion'
+        						);
+    	end loop;
+    	cmensaje := 'Proyectos guardados';
+    elseif (opcion = 3) then -- MODIFICAR REGISTROS
+    	for i in select * from json_array_elements(data) loop
+    		iproyecto := (i->>'idProyecto')::INT;
+    		if exists (select * from proyectos where id = iproyecto) then 
+    			update proyectos set nombre = i->>'nombre', fechainicio = (i->>'inicio')::date, fechafin = (i->>'fin')::date, descripcion = i->>'descripcion' where id = iproyecto;
+    			cmensaje := 'Proyectos modificado con éxito';
+    		else
+    			cmensaje := 'El proyecto con el id: '|| iproyecto||' no existe';
+    			iestado := -1;
+    			exit;
+    		end if;
+    	end loop;
+    elseif (opcion = 4) then -- BORRA ESA MADRE
+    	for i in select * from json_array_elements(data) loop
+    		iproyecto := (i->>'idProyecto')::INT;
+    		if exists (select * from proyectos where id = iproyecto) then 
+    			update proyectos set status = 0 where id = iproyecto;
+    			cmensaje:= 'Proyecto dado de baja exitosamente';
+    		else
+    			cmensaje := 'El proyecto con el id: '|| iproyecto||' no existe';
+    			iestado := -1;
+    			exit;
+    		end if;
+    	end loop;
+	else 
+		cmensaje := 'Opción no válida';
+	end if;
+	return;
+end;
+$function$;
+
+
+
+--Probar el listado
+select
+	cmensaje,
+	cjson,
+	iestado
+from
+	operacionesProyectos('{
+	"opc" : 1,
+	"data": []
+}');
+--Probar el registro
+select
+	cmensaje,
+	cjson,
+	iestado
+from
+	operacionesProyectos('{
+	"opc" : 2,
+	"data": [
+		{
+        	"fin": "2024-04-18",
+        	"inicio": "2024-04-10",
+        	"nombre": "Projecto 4",
+        	"descripcion": "Prueba para borrar"
+    	}
+	]
+}');
+--Probar la modificación
+select
+	cmensaje,
+	cjson,
+	iestado
+from
+	operacionesProyectos('{
+	"opc" : 3,
+	"data": [
+		{
+        	"fin": "2024-04-16",
+        	"inicio": "2024-04-12",
+        	"nombre": "Projecto 3",
+        	"descripcion": "Prueba de registro con fecha FINAL",
+			"idProyecto" : 12
+    	}
+	]
+}');
+--Probar el borrado lógico
+select
+	cmensaje,
+	cjson,
+	iestado
+from
+	operacionesProyectos('{
+	"opc" : 4,
+	"data": [
+		{
+        	"fin": "2024-04-18",
+        	"inicio": "2024-04-10",
+        	"nombre": "Projecto 4",
+        	"status": "1",
+        	"idProyecto": 13,
+        	"descripcion": "Prueba para borrar"
+    	}
+	]
+}');
+--CONSULTAR LA TABLA
+select * from proyectos p ;
+--BORRAR REGISTROS CON STATUS NULO (para borrar registros basura)
+delete from proyectos p where p.id = 11;

@@ -1,0 +1,106 @@
+drop function if exists operacionesUsuariosPuestos(json);
+create or replace function operacionesUsuariosPuestos(in injson json, 
+	out cmensaje character varying,
+	out cjson character varying,
+	out iestado smallint)
+returns record
+language plpgsql
+as $function$
+declare 
+	data json;
+	i json;
+	opcion smallint;
+	ipuesto smallint;
+begin
+	data := injson->'data';
+	opcion := injson->'opc';
+	cmensaje := 'exito';
+	iestado := 1;
+if (opcion = 1) then -- LISTA ESA MADRE
+	cjson = (select array_to_json(array_agg(
+			jsonb_build_object('idPuesto', id, 'nombre', nombre, 'status', status)))
+			from usuarios_puestos where status = 1);
+	cmensaje := 'Datos encontrados';
+elseif (opcion = 2) then -- REGISTRA ESA MADRE
+	for i in select * from json_array_elements(data) loop
+		insert into usuarios_puestos(nombre, status) values (i->>'nombre', 1);
+	end loop;
+	cmensaje := 'Puesto guardado';
+elseif (opcion = 3) then -- MODIFICA ESA MADRE
+	for i in select * from json_array_elements(data) loop
+		ipuesto := (i->>'idPuesto')::INT;
+		if exists (select * from usuarios_puestos where id = ipuesto) then 
+			update usuarios_puestos set nombre = i->>'nombre' where id = ipuesto;
+			cmensaje := 'Puesto modificado con éxito';
+		else
+			cmensaje := 'Puesto con el id: '||ipuesto||' no encontrado';
+			iestado := -1;
+			exit;
+		end if;
+	end loop;
+elseif (opcion = 4) then -- BORRA ESA MADRE
+	for i in select * from json_array_elements(data) loop
+		ipuesto := (i->>'idPuesto')::INT;
+		if exists (select * from usuarios_puestos where id = ipuesto) then
+			update usuarios_puestos set status = 0 where id = ipuesto;
+			cmensaje := 'Puesto dado de baja exitosamente';
+		else
+			cmensaje := 'Puesto con el id: '||ipuesto||' no encontrado';
+			iestado := -1;
+			exit;
+		end if;
+	end loop;
+	
+else
+	cmensaje := 'Opción no válida';
+end if;
+return;
+end;
+$function$;
+
+-- Probar listado
+select cmensaje, cjson, iestado from operacionesusuariospuestos('{
+	"opc": 1,
+	"data": []
+}'); 
+-- Probar el registro
+select cmensaje,cjson,iestado from operacionesusuariospuestos('{
+"opc" : 2,
+"data" : [
+	{
+		"nombre" : "El llevador de cocas"
+	},
+	{
+		"nombre" : "El que pide los tacos"
+	}
+]
+}') ;
+-- Probar la modificación
+select cmensaje,cjson,iestado from operacionesusuariospuestos('{
+"opc" : 3,
+"data" : [
+	{	
+		"idPuesto": 20,
+		"nombre" : "Taquero"
+	}
+]
+}') ;
+-- Probar el borrado lógico
+select cmensaje,cjson,iestado from operacionesusuariospuestos('{
+"opc" : 4,
+"data" : [
+	{	
+        "nombre": "El llevador de cocas",
+        "status": 1,
+        "idPuesto": 19
+	}
+]
+}') ;
+
+
+-- CONSULTAR LA TABLA 
+select * from usuarios_puestos up;
+-- BORRAR REGISTROS CON STATUS NULO (para borrar registros basura)
+delete from usuarios_puestos up where up.id = 21; 
+-- CONSULTAR LA TABLA 
+select * from usuarios u;
